@@ -31,7 +31,7 @@ pub async fn get_github_token(code: String) -> anyhow::Result<GithubTokenInfo> {
             "client_id": github_client_id,
             "client_secret": github_client_secret,
             "code": code,
-            "redirect_uri": "http://localhost:5173/oauth/github"
+            "redirect_uri": "https://linker.sh/oauth/github"
         }))
         .send()
         .await?;
