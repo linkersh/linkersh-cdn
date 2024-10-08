@@ -29,6 +29,19 @@ services:
     environment:
       - MINIO_ROOT_USER=minioadmin
       - MINIO_ROOT_PASSWORD=minioadmin
-    command: server /data --address 127.0.0.1:6803 --console-address 127.0.0.1:6804
+    command: server /data --address 127.0.0.1:6603 --console-address 127.0.0.1:6604
     volumes:
       - ./minio-data:/data
+
+  panel:
+    restart: unless-stopped
+    build:
+      context: .
+      dockerfile: ./Dockerfile
+      network: host
+    network_mode: host
+    environment:
+      - RUST_LOG=info
+    volumes:
+      - ./.env:/.env
+
