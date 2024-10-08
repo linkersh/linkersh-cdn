@@ -1,0 +1,44 @@
+[package]
+name = "linkersh-panel"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "1.0.89"
+axum = { version = "0.7.7", features = ["macros"] }
+axum_typed_multipart = "0.13.0"
+dotenvy = "0.15.7"
+rust-s3 = "0.35.1"
+sqlx = { version = "0.8.0", features = [
+    "runtime-tokio",
+    "postgres",
+    "chrono",
+    "uuid",
+    "json",
+] }
+tempfile = "3.13.0"
+thiserror = "1.0.64"
+tokio = { version = "1.40.0", features = ["full"] }
+tracing = "0.1.40"
+tracing-subscriber = "0.3.18"
+jsonwebtoken = "9.3.0"
+chrono = { version = "0.4.38", features = ["serde"] }
+rand = "0.8.5"
+serde = { version = "1.0.210", features = ["derive"] }
+serde_json = "1.0.128"
+reqwest = { version = "0.12.7", features = [
+    "json",
+    "gzip",
+    "brotli",
+    "zstd",
+    "deflate",
+] }
+serde_urlencoded = "0.7.1"
+uuid = { version = "1.10.0", features = ["serde", "v4"] }
+futures-util = "0.3.31"
+tower = "0.5.1"
+scopeguard = "1.2.0"
+tower-http = { version = "0.6.1", features = ["compression-gzip", "trace"] }
+fast_image_resize = { version = "5.0.0", features = ["image"] }
+image = "0.25.2"
+webp = { version = "0.3.0", features = ["img"] }

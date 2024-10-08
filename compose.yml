@@ -1,0 +1,34 @@
+secrets:
+  serverEnv:
+    file: ./.env
+
+services:
+  postgres:
+    build:
+      context: .
+      dockerfile: ./pg/Dockerfile
+      network: host
+    volumes:
+      - ./postgres:/var/lib/postgresql/data
+      - ./pg/postgresql.conf:/etc/postgresql.conf
+      - ./pg/logs:/var/log/postgresql
+    network_mode: host
+    environment:
+      - POSTGRES_PASSWORD=${PG_PWD}
+      - POSTGRES_USER=pglin
+      - POSTGRES_DB=linker_db
+    container_name: linker_postgresdb
+    restart: always
+    command: [ "postgres", "-c", "config_file=/etc/postgresql.conf" ]
+
+  minio:
+    image: minio/minio:latest
+    container_name: linker_minio
+    restart: always
+    network_mode: host
+    environment:
+      - MINIO_ROOT_USER=minioadmin
+      - MINIO_ROOT_PASSWORD=minioadmin
+    command: server /data --address 127.0.0.1:6803 --console-address 127.0.0.1:6804
+    volumes:
+      - ./minio-data:/data
