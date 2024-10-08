@@ -42,3 +42,4 @@ tower-http = { version = "0.6.1", features = ["compression-gzip", "trace"] }
 fast_image_resize = { version = "5.0.0", features = ["image"] }
 image = "0.25.2"
 webp = { version = "0.3.0", features = ["img"] }
+sha2 = "0.10.8"

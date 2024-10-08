@@ -13,8 +13,10 @@ use image::{
 };
 use scopeguard::guard_on_success;
 use serde::Deserialize;
+use sha2::{Digest, Sha256};
 use std::{
-    io::BufWriter,
+    io::{BufReader, BufWriter, Read},
+    path::PathBuf,
     result,
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -243,6 +245,24 @@ pub struct UploadRequest {
     // options: String,
 }
 
+fn compute_sha256(filename: &PathBuf) -> anyhow::Result<String> {
+    let file = std::fs::File::open(filename)?;
+    let mut reader = BufReader::new(file);
+    let mut hasher = Sha256::new();
+
+    let mut buffer = [0; 1024];
+    loop {
+        let count = reader.read(&mut buffer)?;
+        if count == 0 {
+            break;
+        }
+        hasher.update(&buffer[..count]);
+    }
+
+    let hash = hasher.finalize();
+    Ok(format!("{:x}", hash))
+}
+
 pub async fn upload(
     Extension(claims): Extension<TokenClaims>,
     State(state): State<Arc<ApiState>>,
@@ -275,6 +295,12 @@ pub async fn upload(
     let mut objects = Vec::with_capacity(body.files.len());
     for file in body.files {
         let path = file.contents.path().to_owned();
+        let hash = compute_sha256(&path)?;
+
+        let existing_hash = state.pg.find_existing_hash(&hash).await?;
+        if existing_hash {
+            continue;
+        }
 
         let mut content = File::open(path).await?;
         let content_type = file
@@ -307,6 +333,7 @@ pub async fn upload(
                         user_id: claims.sub,
                         id: obj.id,
                     },
+                    hash,
                     Some(&mut *trans),
                 )
                 .await?,

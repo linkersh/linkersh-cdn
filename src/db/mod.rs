@@ -24,6 +24,7 @@ pub struct CdnObject {
     pub file_name: String,
     pub slug: Option<String>,
     pub is_public: bool,
+    pub sha256_hash: String,
 }
 
 pub struct PgClient {
@@ -70,16 +71,27 @@ impl PgClient {
         Ok(object)
     }
 
+    pub async fn find_existing_hash(&self, hash: &str) -> anyhow::Result<bool> {
+        let obj = sqlx::query!(
+            "SELECT sha256_hash FROM cdn_objects WHERE sha256_hash = $1",
+            hash
+        )
+        .fetch_one(&self.inner)
+        .await?;
+        Ok(obj.sha256_hash == hash)
+    }
+
     pub async fn create_cdn_object(
         &self,
         obj: CreateCdnObject,
+        hash: String,
         conn: Option<&mut PgConnection>,
     ) -> anyhow::Result<CdnObject> {
         let query = sqlx::query_as!(
             CdnObject,
             r#"
-            INSERT INTO cdn_objects (id, user_id, content_type, content_size, file_name, is_public)
-            VALUES ($1, $2, $3, $4, $5, $6)
+            INSERT INTO cdn_objects (id, user_id, content_type, content_size, file_name, is_public, sha256_hash)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
             RETURNING *
         "#,
             obj.id,
@@ -87,7 +99,8 @@ impl PgClient {
             obj.content_type,
             obj.content_size,
             obj.file_name,
-            false
+            false,
+            hash
         );
 
         if let Some(conn) = conn {
