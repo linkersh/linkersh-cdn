@@ -76,9 +76,9 @@ impl PgClient {
             "SELECT sha256_hash FROM cdn_objects WHERE sha256_hash = $1",
             hash
         )
-        .fetch_one(&self.inner)
+        .fetch_optional(&self.inner)
         .await?;
-        Ok(obj.sha256_hash == hash)
+        Ok(obj.map(|x| x.sha256_hash == hash).unwrap_or(false))
     }
 
     pub async fn create_cdn_object(
