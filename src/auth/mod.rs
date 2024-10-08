@@ -10,8 +10,14 @@ pub mod user;
 #[derive(Deserialize, Debug)]
 #[serde(untagged)]
 pub enum GithubTokenInfo {
-    Ok { access_token: String },
-    Error {},
+    Ok {
+        access_token: String,
+    },
+    Error {
+        error: Option<String>,
+        error_description: Option<String>,
+        error_uri: Option<String>,
+    },
 }
 
 pub async fn get_github_token(code: String) -> anyhow::Result<GithubTokenInfo> {

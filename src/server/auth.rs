@@ -27,8 +27,13 @@ pub async fn github_signin(
     Json(info): Json<GithubSignInInfo>,
 ) -> Result<Json<GithubSignInResp>, ApiError> {
     let token = auth::get_github_token(info.code).await?;
-    let GithubTokenInfo::Ok { access_token, .. } = token else {
-        return Err(ApiError::Unauthorized);
+
+    let access_token = match token {
+        GithubTokenInfo::Ok { access_token } => access_token,
+        GithubTokenInfo::Error { error, .. } => {
+            tracing::error!(error = ?error, "failed to do github auth");
+            return Err(ApiError::Unauthorized);
+        }
     };
 
     let user = auth::get_github_user_info(&access_token).await?;
