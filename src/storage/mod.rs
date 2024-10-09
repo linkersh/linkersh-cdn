@@ -5,7 +5,7 @@ use tokio::fs::File;
 use uuid::Uuid;
 
 pub struct StorageClient {
-    inner: Box<Bucket>,
+    pub inner: Box<Bucket>,
 }
 
 pub struct UploadedObject {
@@ -13,7 +13,10 @@ pub struct UploadedObject {
     pub size: usize,
 }
 
-pub struct ObjectList {}
+pub struct UploadedThumb {
+    pub size: usize,
+    pub buffer: Vec<u8>,
+}
 
 impl StorageClient {
     pub async fn new() -> anyhow::Result<StorageClient> {
@@ -60,7 +63,7 @@ impl StorageClient {
             .inner
             .put_object_stream_with_content_type(
                 content,
-                format!("/vaults/{user_id}/{id}"),
+                format!("/vaults/{user_id}/objects/{id}"),
                 &content_type,
             )
             .await?;
@@ -71,18 +74,55 @@ impl StorageClient {
         })
     }
 
+    pub async fn upload_object_thumb(
+        &self,
+        user_id: Uuid,
+        object_id: Uuid,
+        content: Vec<u8>,
+        content_type: &str,
+    ) -> anyhow::Result<UploadedThumb> {
+        self.inner
+            .put_object_with_content_type(
+                format!("/vaults/{user_id}/thumbnails/{object_id}"),
+                &content,
+                &content_type,
+            )
+            .await?;
+
+        Ok(UploadedThumb {
+            size: content.len(),
+            buffer: content,
+        })
+    }
+
     pub async fn delete_user_object(&self, user_id: Uuid, object_id: Uuid) -> anyhow::Result<()> {
         self.inner
-            .delete_object(format!("/vaults/{user_id}/{object_id}"))
+            .delete_object(format!("/vaults/{user_id}/objects/{object_id}"))
+            .await?;
+
+        self.inner
+            .delete_object(format!("/vaults/{user_id}/thumbnails/{object_id}"))
             .await?;
 
         Ok(())
     }
 
+    pub async fn get_object_thumb(
+        &self,
+        user_id: Uuid,
+        object_id: Uuid,
+    ) -> anyhow::Result<Vec<u8>> {
+        let content = self
+            .inner
+            .get_object(format!("/vaults/{user_id}/thumbnails/{object_id}"))
+            .await?;
+        Ok(content.to_vec())
+    }
+
     pub async fn get_user_object(&self, user_id: Uuid, object_id: Uuid) -> anyhow::Result<Vec<u8>> {
         let content = self
             .inner
-            .get_object(format!("/vaults/{user_id}/{object_id}"))
+            .get_object(format!("/vaults/{user_id}/objects/{object_id}"))
             .await?;
         Ok(content.to_vec())
     }

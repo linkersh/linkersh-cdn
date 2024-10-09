@@ -23,6 +23,7 @@ pub enum GithubTokenInfo {
 pub async fn get_github_token(code: String) -> anyhow::Result<GithubTokenInfo> {
     let github_client_id = env::var("GITHUB_CLIENT_ID")?;
     let github_client_secret = env::var("GITHUB_CLIENT_SECRET")?;
+    let github_redirect_uri = env::var("GITHUB_REDIRECT_URI")?;
 
     let client = Client::new();
     let request = client
@@ -31,7 +32,7 @@ pub async fn get_github_token(code: String) -> anyhow::Result<GithubTokenInfo> {
             "client_id": github_client_id,
             "client_secret": github_client_secret,
             "code": code,
-            "redirect_uri": "https://linker.sh/oauth/github"
+            "redirect_uri": github_redirect_uri
         }))
         .send()
         .await?;

@@ -11,6 +11,7 @@ pub struct CreateCdnObject {
     pub user_id: Uuid,
     pub content_type: String,
     pub content_size: i64,
+    pub hash: String,
     pub file_name: String,
 }
 
@@ -84,7 +85,6 @@ impl PgClient {
     pub async fn create_cdn_object(
         &self,
         obj: CreateCdnObject,
-        hash: String,
         conn: Option<&mut PgConnection>,
     ) -> anyhow::Result<CdnObject> {
         let query = sqlx::query_as!(
@@ -100,7 +100,7 @@ impl PgClient {
             obj.content_size,
             obj.file_name,
             false,
-            hash
+            obj.hash
         );
 
         if let Some(conn) = conn {

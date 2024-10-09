@@ -8,6 +8,7 @@ pub enum ApiError {
     Unauthorized,
     CdnObjectNotFound,
     ObjectIsAlreadyPublic,
+    ObjectHasNoThumbnail,
     Internal(anyhow::Error),
 }
 
@@ -21,6 +22,9 @@ impl IntoResponse for ApiError {
             Self::Unauthorized => (StatusCode::UNAUTHORIZED, "Unauthorized").into_response(),
             Self::CdnObjectNotFound => (StatusCode::NOT_FOUND, "Not Found").into_response(),
             Self::ObjectIsAlreadyPublic => (StatusCode::CONFLICT, "Conflict").into_response(),
+            Self::ObjectHasNoThumbnail => {
+                (StatusCode::METHOD_NOT_ALLOWED, "Method Not Allowed").into_response()
+            }
         }
     }
 }

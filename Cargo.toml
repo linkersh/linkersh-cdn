@@ -43,3 +43,5 @@ fast_image_resize = { version = "5.0.0", features = ["image"] }
 image = "0.25.2"
 webp = { version = "0.3.0", features = ["img"] }
 sha2 = "0.10.8"
+tokio-stream = "0.1.16"
+futures = "0.3.31"

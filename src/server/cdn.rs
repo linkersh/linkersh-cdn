@@ -7,6 +7,7 @@ use axum::{
 };
 use axum_typed_multipart::{FieldData, TryFromMultipart, TypedMultipart};
 use fast_image_resize::{images::Image, IntoImageView, ResizeOptions, Resizer};
+use futures::{stream::FuturesUnordered, StreamExt};
 use image::{
     codecs::{png::PngEncoder, webp::WebPEncoder},
     DynamicImage, EncodableLayout, ImageEncoder, ImageFormat,
@@ -114,6 +115,7 @@ pub async fn publish_object(
     Ok(Json(object))
 }
 
+#[axum::debug_handler]
 pub async fn fetch_object_thumb(
     State(state): State<Arc<ApiState>>,
     Extension(claims): Extension<TokenClaims>,
@@ -127,6 +129,24 @@ pub async fn fetch_object_thumb(
         }
     };
 
+    if !obj_pg.content_type.starts_with("image/") {
+        return Err(ApiError::ObjectHasNoThumbnail.into());
+    }
+
+    if let Ok(object) = state.storage.get_object_thumb(claims.sub, id).await {
+        tracing::debug!("loading thubmnail for object {} from cache", obj_pg.id);
+        let response = axum::http::Response::builder()
+            .status(StatusCode::OK)
+            .header(header::CONTENT_TYPE, "image/webp") // Set appropriate MIME type
+            .header(header::CONTENT_LENGTH, object.len())
+            .header(
+                header::CONTENT_DISPOSITION,
+                format!("attachment; filename=\"{}\"", obj_pg.file_name),
+            )
+            .body(axum::body::Body::from(object))?;
+        return Ok(response);
+    }
+
     let obj_s3 = match state.storage.get_user_object(claims.sub, id).await {
         Ok(v) => v,
         Err(error) => {
@@ -135,45 +155,57 @@ pub async fn fetch_object_thumb(
         }
     };
 
-    let src_image = image::load_from_memory(&obj_s3)?;
+    let buffer = tokio::task::spawn_blocking(move || -> anyhow::Result<Vec<u8>> {
+        let src_image = image::load_from_memory(&obj_s3)?;
 
-    let dst_width = 256;
-    let dst_height = 256;
-    let mut dst_image = Image::new(dst_width, dst_height, src_image.pixel_type().unwrap());
+        let dst_width = 256;
+        let dst_height = 256;
+        let mut dst_image = Image::new(dst_width, dst_height, src_image.pixel_type().unwrap());
 
-    let mut resizer = Resizer::new();
-    resizer
-        .resize(
-            &src_image,
-            &mut dst_image,
-            &Some(ResizeOptions::new().fit_into_destination(None)),
-        )
-        .unwrap();
+        let mut resizer = Resizer::new();
+        resizer
+            .resize(
+                &src_image,
+                &mut dst_image,
+                &Some(ResizeOptions::new().fit_into_destination(None)),
+            )
+            .unwrap();
 
-    let mut result_buf = BufWriter::new(Vec::new());
-    WebPEncoder::new_lossless(&mut result_buf)
-        .write_image(
-            dst_image.buffer(),
-            dst_width,
-            dst_height,
-            src_image.color().into(),
-        )
-        .unwrap();
+        let mut result_buf = BufWriter::new(Vec::new());
+        WebPEncoder::new_lossless(&mut result_buf)
+            .write_image(
+                dst_image.buffer(),
+                dst_width,
+                dst_height,
+                src_image.color().into(),
+            )
+            .unwrap();
 
-    let result_buf = result_buf.into_inner()?;
-    let dynimg = image::load_from_memory(&result_buf)?;
-    let webp_encoder = Encoder::from_image(&dynimg).unwrap();
-    let webp_image = webp_encoder.encode_simple(false, 70.0).unwrap();
+        let result_buf = result_buf.into_inner()?;
+        let dynimg = image::load_from_memory(&result_buf)?;
+        let webp_encoder = Encoder::from_image(&dynimg).unwrap();
+        let webp_image = webp_encoder.encode_simple(false, 70.0).unwrap();
+
+        Ok(webp_image.to_vec()) 
+    })
+    .await??;
+
+    let out = state
+        .storage
+        .upload_object_thumb(claims.sub, obj_pg.id, buffer, "image/webp")
+        .await?;
+
+    tracing::debug!("create a thumbnail for object {}", obj_pg.id);
 
     let response = axum::http::Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, "image/webp") // Set appropriate MIME type
-        .header(header::CONTENT_LENGTH, webp_image.len())
+        .header(header::CONTENT_LENGTH, out.buffer.len())
         .header(
             header::CONTENT_DISPOSITION,
             format!("attachment; filename=\"{}\"", obj_pg.file_name),
         )
-        .body(axum::body::Body::from(webp_image.to_vec()))?;
+        .body(axum::body::Body::from(out.buffer))?;
 
     Ok(response)
 }
@@ -250,7 +282,7 @@ fn compute_sha256(filename: &PathBuf) -> anyhow::Result<String> {
     let mut reader = BufReader::new(file);
     let mut hasher = Sha256::new();
 
-    let mut buffer = [0; 1024];
+    let mut buffer = [0; 8196];
     loop {
         let count = reader.read(&mut buffer)?;
         if count == 0 {
@@ -263,12 +295,64 @@ fn compute_sha256(filename: &PathBuf) -> anyhow::Result<String> {
     Ok(format!("{:x}", hash))
 }
 
+#[tracing::instrument(skip_all)]
+async fn process_upload(
+    user_id: Uuid,
+    state: Arc<ApiState>,
+    file: FieldData<NamedTempFile>,
+    objects: Arc<Mutex<Vec<CreateCdnObject>>>,
+) -> anyhow::Result<()> {
+    tracing::debug!("processing file {:?}", file.contents.path());
+
+    let path = file.contents.path().to_owned();
+    let hash = compute_sha256(&path)?;
+
+    tracing::debug!("uploading file hash is {hash}");
+    let existing_hash = state.pg.find_existing_hash(&hash).await?;
+    if existing_hash {
+        tracing::debug!("skipping hash {hash}, it already exists");
+        return Ok(());
+    }
+
+    let mut content = File::open(path).await?;
+    let content_type = file
+        .metadata
+        .content_type
+        .unwrap_or("application/octet-stream".to_owned());
+
+    let obj = state
+        .storage
+        .upload_user_object(user_id, &mut content, &content_type)
+        .await?;
+
+    let prefix = obj.id.to_string().chars().take(12).collect::<String>();
+    let file_name = file
+        .metadata
+        .file_name
+        .unwrap_or(format!("{prefix}_no_file_name"));
+    let cdn_obj = CreateCdnObject {
+        content_type,
+        file_name,
+        content_size: obj.size.try_into()?,
+        user_id,
+        hash,
+        id: obj.id,
+    };
+
+    let mut objects = objects.lock().await;
+    objects.push(cdn_obj);
+
+    drop(objects);
+    Ok(())
+}
+
 pub async fn upload(
     Extension(claims): Extension<TokenClaims>,
     State(state): State<Arc<ApiState>>,
     TypedMultipart(body): TypedMultipart<UploadRequest>,
 ) -> Result<Json<Vec<CdnObject>>, ApiError> {
-    let uploaded_objects = Arc::new(Mutex::new(Vec::with_capacity(body.files.len())));
+    let uploaded_objects: Arc<Mutex<Vec<CreateCdnObject>>> =
+        Arc::new(Mutex::new(Vec::with_capacity(body.files.len())));
 
     let uo_copy = Arc::clone(&uploaded_objects);
     let state_copy = Arc::clone(&state);
@@ -284,66 +368,50 @@ pub async fn upload(
 
             let lock = uo_copy.lock().await;
             for obj in lock.iter() {
-                if let Err(error) = state_copy.storage.delete_user_object(user_id, *obj).await {
+                if let Err(error) = state_copy.storage.delete_user_object(user_id, obj.id).await {
                     tracing::error!(error = ?error, "failed to delete object in defer");
                 }
             }
         });
     });
 
+    let start = Instant::now();
     let mut trans = state.pg.inner.begin().await?;
     let mut objects = Vec::with_capacity(body.files.len());
+    let future_set = FuturesUnordered::new();
+
     for file in body.files {
-        let path = file.contents.path().to_owned();
-        let hash = compute_sha256(&path)?;
+        let statec = Arc::clone(&state);
+        let uploaded_objects = uploaded_objects.clone();
+        future_set.push(async move {
+            if let Err(error) = process_upload(claims.sub, statec, file, uploaded_objects).await {
+                tracing::error!(error = ?error, "process upload error");
+            }
+        });
+    }
 
-        let existing_hash = state.pg.find_existing_hash(&hash).await?;
-        if existing_hash {
-            continue;
-        }
+    future_set.collect::<Vec<()>>().await;
 
-        let mut content = File::open(path).await?;
-        let content_type = file
-            .metadata
-            .content_type
-            .unwrap_or("application/octet-stream".to_owned());
+    let mut up_objects_lock = uploaded_objects.lock().await;
+    let mut up_objects = Vec::with_capacity(up_objects_lock.len());
 
-        let obj = state
-            .storage
-            .upload_user_object(claims.sub, &mut content, &content_type)
-            .await?;
+    std::mem::swap(&mut *up_objects_lock, &mut up_objects);
+    drop(up_objects_lock);
 
-        let mut lock = uploaded_objects.lock().await;
-        lock.push(obj.id);
-
-        let prefix = obj.id.to_string().chars().take(12).collect::<String>();
-        let file_name = file
-            .metadata
-            .file_name
-            .unwrap_or(format!("{prefix}_no_file_name"));
-
-        objects.push(
-            state
-                .pg
-                .create_cdn_object(
-                    CreateCdnObject {
-                        content_type,
-                        file_name,
-                        content_size: obj.size.try_into()?,
-                        user_id: claims.sub,
-                        id: obj.id,
-                    },
-                    hash,
-                    Some(&mut *trans),
-                )
-                .await?,
-        );
-
-        file.contents.close()?;
+    let cdn_objects_len = up_objects.len();
+    for o in up_objects.into_iter() {
+        let created_object = state.pg.create_cdn_object(o, Some(&mut *trans)).await?;
+        objects.push(created_object);
     }
 
     trans.commit().await?;
-    success_guard.store(true, Ordering::SeqCst);
+    tracing::info!(
+        "created {} cdn objects, elapsed: {:.2?}",
+        cdn_objects_len,
+        start.elapsed()
+    );
+
+    success_guard.store(false, Ordering::SeqCst);
 
     Ok(Json(objects))
 }
