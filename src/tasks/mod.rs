@@ -55,7 +55,7 @@ async fn run_tasks(state: &Arc<ApiState>) -> anyhow::Result<()> {
     .fetch_all(&state.pg.inner)
     .await?;
 
-    let threads: usize = 1; // std::thread::available_parallelism()?.into();
+    let threads: usize = std::thread::available_parallelism()?.into();
 
     if !objects.is_empty() {
         tracing::info!(
@@ -64,7 +64,8 @@ async fn run_tasks(state: &Arc<ApiState>) -> anyhow::Result<()> {
         );
     }
 
-    let chunks = objects.chunks(threads);
+    let chunk_size = (objects.len() + threads - 1) / threads;
+    let chunks = objects.chunks(chunk_size);
     let futures = FuturesUnordered::new();
 
     for ch in chunks {
