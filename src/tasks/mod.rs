@@ -55,7 +55,7 @@ async fn run_tasks(state: &Arc<ApiState>) -> anyhow::Result<()> {
     .fetch_all(&state.pg.inner)
     .await?;
 
-    let threads: usize = std::thread::available_parallelism()?.into();
+    let threads: usize = 1; // std::thread::available_parallelism()?.into();
 
     if !objects.is_empty() {
         tracing::info!(
