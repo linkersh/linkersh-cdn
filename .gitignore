@@ -3,3 +3,6 @@
 /minio-data
 /postgres
 /pg/logs
+/data.ms
+ocr/text-detection.rten
+ocr/text-recognition.rten

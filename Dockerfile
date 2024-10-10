@@ -29,6 +29,8 @@ RUN apt-get update -y && \
     apt-get install ca-certificates -y && \
     apt-get clean
 
+RUN mkdir /ocr
+
 ARG UID=10001
 RUN adduser \
     --disabled-password \
@@ -41,6 +43,8 @@ RUN adduser \
 USER appuser
 
 COPY --from=build /bin/linkersh-panel /bin/
+COPY ocr/text-detection.rten /ocr/text-detection.rten
+COPY ocr/text-recognition.rten /ocr/text-recognition.rten
 
 EXPOSE 6601
 

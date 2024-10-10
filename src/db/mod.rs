@@ -6,6 +6,10 @@ use serde::Serialize;
 use sqlx::{prelude::FromRow, PgConnection, Pool, Postgres};
 use uuid::Uuid;
 
+// Searchable objects:
+// - Text files
+// - Image files: png, jpeg, webp (with OCR)
+
 pub struct CreateCdnObject {
     pub id: Uuid,
     pub user_id: Uuid,
@@ -15,7 +19,13 @@ pub struct CreateCdnObject {
     pub file_name: String,
 }
 
-#[derive(FromRow, Serialize)]
+/// Indicates this object has been OCR'd and indexed into meilisearch
+pub const COF_INDEXED: i64 = 1;
+
+/// Indicates this object is searchable, i.e image or text
+pub const COF_SEARCHABLE: i64 = 2;
+
+#[derive(FromRow, Serialize, Clone, Debug)]
 pub struct CdnObject {
     pub id: Uuid,
     pub user_id: Uuid,
@@ -26,8 +36,10 @@ pub struct CdnObject {
     pub slug: Option<String>,
     pub is_public: bool,
     pub sha256_hash: String,
+    pub flags: i64,
 }
 
+#[derive(Clone)]
 pub struct PgClient {
     pub inner: Pool<Postgres>,
 }
@@ -72,9 +84,10 @@ impl PgClient {
         Ok(object)
     }
 
-    pub async fn find_existing_hash(&self, hash: &str) -> anyhow::Result<bool> {
+    pub async fn find_existing_hash(&self, user_id: Uuid, hash: &str) -> anyhow::Result<bool> {
         let obj = sqlx::query!(
-            "SELECT sha256_hash FROM cdn_objects WHERE sha256_hash = $1",
+            "SELECT sha256_hash FROM cdn_objects WHERE user_id = $1 AND sha256_hash = $2",
+            user_id,
             hash
         )
         .fetch_optional(&self.inner)
@@ -86,12 +99,13 @@ impl PgClient {
         &self,
         obj: CreateCdnObject,
         conn: Option<&mut PgConnection>,
+        flags: i64,
     ) -> anyhow::Result<CdnObject> {
         let query = sqlx::query_as!(
             CdnObject,
             r#"
-            INSERT INTO cdn_objects (id, user_id, content_type, content_size, file_name, is_public, sha256_hash)
-            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            INSERT INTO cdn_objects (id, user_id, content_type, content_size, file_name, is_public, sha256_hash, flags)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
             RETURNING *
         "#,
             obj.id,
@@ -100,7 +114,8 @@ impl PgClient {
             obj.content_size,
             obj.file_name,
             false,
-            obj.hash
+            obj.hash,
+            flags
         );
 
         if let Some(conn) = conn {

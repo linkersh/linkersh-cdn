@@ -10,7 +10,7 @@ use std::{
 };
 use tower::{Layer, Service};
 
-use super::state::ApiState;
+use crate::state::ApiState;
 
 struct InnerAuthLayer {
     ignored_routes: Vec<String>,

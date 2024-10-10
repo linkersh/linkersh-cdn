@@ -1,5 +1,5 @@
 use axum::{
-    extract::{DefaultBodyLimit, Path, State},
+    extract::{DefaultBodyLimit, Path, Query, State},
     http::{header, StatusCode},
     response::IntoResponse,
     routing::{get, post},
@@ -8,17 +8,13 @@ use axum::{
 use axum_typed_multipart::{FieldData, TryFromMultipart, TypedMultipart};
 use fast_image_resize::{images::Image, IntoImageView, ResizeOptions, Resizer};
 use futures::{stream::FuturesUnordered, StreamExt};
-use image::{
-    codecs::{png::PngEncoder, webp::WebPEncoder},
-    DynamicImage, EncodableLayout, ImageEncoder, ImageFormat,
-};
+use image::{codecs::webp::WebPEncoder, ImageEncoder};
 use scopeguard::guard_on_success;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use std::{
     io::{BufReader, BufWriter, Read},
     path::PathBuf,
-    result,
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc,
@@ -30,10 +26,11 @@ use tokio::{fs::File, sync::Mutex};
 use uuid::Uuid;
 use webp::Encoder;
 
-use super::{error::ApiError, state::ApiState};
+use super::error::ApiError;
 use crate::{
     auth::user::TokenClaims,
-    db::{CdnObject, CreateCdnObject},
+    db::{CdnObject, CreateCdnObject, COF_SEARCHABLE},
+    state::ApiState,
 };
 
 pub fn router() -> Router<Arc<ApiState>> {
@@ -45,7 +42,53 @@ pub fn router() -> Router<Arc<ApiState>> {
         .layer(DefaultBodyLimit::max(5000000000))
         .route("/objects/delete", post(delete_objects))
         .route("/objects/publish", post(publish_object))
+        .route("/objects/search", get(search_objects))
         .route("/*slug", get(fetch_obj_by_slug))
+}
+
+#[derive(Deserialize, Debug)]
+pub struct SearchObjectsQuery {
+    q: String,
+}
+
+pub async fn search_objects(
+    State(state): State<Arc<ApiState>>,
+    Extension(claims): Extension<TokenClaims>,
+    Query(query): Query<SearchObjectsQuery>,
+) -> Result<Json<Vec<CdnObject>>, ApiError> {
+    let objects_found = state.meili.search_objects(claims.sub, &query.q).await?;
+    let object_ids = objects_found
+        .iter()
+        .map(|x| x.result.id)
+        .collect::<Vec<_>>();
+
+    let mut objects: Vec<CdnObject> =
+        sqlx::query_as("SELECT * FROM cdn_objects WHERE user_id = $1 AND id = ANY($2)")
+            .bind(claims.sub)
+            .bind(&object_ids)
+            .fetch_all(&state.pg.inner)
+            .await?;
+
+    objects.sort_by(|a, b| {
+        let pos_a = objects_found
+            .iter()
+            .position(|x| x.result.id == a.id)
+            .unwrap();
+        let pos_b = objects_found
+            .iter()
+            .position(|x| x.result.id == b.id)
+            .unwrap();
+
+        if pos_b > pos_a {
+            std::cmp::Ordering::Less
+        } else if pos_b < pos_a {
+            std::cmp::Ordering::Greater
+        } else {
+            std::cmp::Ordering::Equal
+        }
+    });
+
+    Ok(Json(objects))
 }
 
 pub async fn fetch_obj_by_slug(
@@ -186,7 +229,7 @@ pub async fn fetch_object_thumb(
         let webp_encoder = Encoder::from_image(&dynimg).unwrap();
         let webp_image = webp_encoder.encode_simple(false, 70.0).unwrap();
 
-        Ok(webp_image.to_vec()) 
+        Ok(webp_image.to_vec())
     })
     .await??;
 
@@ -308,7 +351,7 @@ async fn process_upload(
     let hash = compute_sha256(&path)?;
 
     tracing::debug!("uploading file hash is {hash}");
-    let existing_hash = state.pg.find_existing_hash(&hash).await?;
+    let existing_hash = state.pg.find_existing_hash(user_id, &hash).await?;
     if existing_hash {
         tracing::debug!("skipping hash {hash}, it already exists");
         return Ok(());
@@ -400,7 +443,19 @@ pub async fn upload(
 
     let cdn_objects_len = up_objects.len();
     for o in up_objects.into_iter() {
-        let created_object = state.pg.create_cdn_object(o, Some(&mut *trans)).await?;
+        const SUPPORTED_TYPES: [&str; 4] = ["image/jpeg", "image/jpg", "image/png", "image/webp"];
+
+        let mut flags = 0;
+        if SUPPORTED_TYPES.iter().any(|x| x == &o.content_type) {
+            flags = flags | COF_SEARCHABLE;
+
+            tracing::debug!("object {} is searchable", o.id);
+        }
+
+        let created_object = state
+            .pg
+            .create_cdn_object(o, Some(&mut *trans), flags)
+            .await?;
         objects.push(created_object);
     }
 
@@ -412,6 +467,5 @@ pub async fn upload(
     );
 
     success_guard.store(false, Ordering::SeqCst);
-
     Ok(Json(objects))
 }

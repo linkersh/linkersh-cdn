@@ -1,6 +1,5 @@
 use axum::{routing::get, Router};
 use middleware::AuthLayer;
-use state::ApiState;
 use std::{env, sync::Arc};
 use tower::ServiceBuilder;
 use tower_http::{
@@ -9,16 +8,15 @@ use tower_http::{
 };
 use tracing::Level;
 
+use crate::{db::PgClient, state::ApiState};
+
 mod auth;
 mod cdn;
 mod error;
 mod middleware;
-mod state;
 
 /// Creates and runs the API server
-pub async fn create_server() -> anyhow::Result<()> {
-    let state = Arc::new(ApiState::new().await?);
-
+pub async fn create_server(state: Arc<ApiState>) -> anyhow::Result<()> {
     let app = Router::new()
         .route("/", get(root))
         .nest("/cdn", cdn::router())

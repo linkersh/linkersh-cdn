@@ -3,9 +3,12 @@ use std::sync::Arc;
 use axum::{extract::State, routing::post, Json, Router};
 use serde::{Deserialize, Serialize};
 
-use crate::auth::{self, GithubTokenInfo};
+use crate::{
+    auth::{self, GithubTokenInfo},
+    state::ApiState,
+};
 
-use super::{error::ApiError, state::ApiState};
+use super::error::ApiError;
 
 pub fn router() -> Router<Arc<ApiState>> {
     Router::new().route("/gh_singin", post(github_signin))
