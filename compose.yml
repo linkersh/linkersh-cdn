@@ -41,7 +41,7 @@ services:
       network: host
     network_mode: host
     environment:
-      - RUST_LOG=info
+      - RUST_LOG=linkersh_panel=debug
     volumes:
       - ./.env:/.env
   meilisearch:
