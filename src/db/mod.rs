@@ -53,10 +53,17 @@ impl PgClient {
         Ok(PgClient { inner: pool })
     }
 
-    pub async fn list_cdn_object(&self, user_id: Uuid) -> anyhow::Result<Vec<CdnObject>> {
+    pub async fn list_cdn_object(
+        &self,
+        user_id: Uuid,
+        limit: i32,
+        skip: i32,
+    ) -> anyhow::Result<Vec<CdnObject>> {
         let objects: Vec<CdnObject> =
-            sqlx::query_as("SELECT * FROM cdn_objects WHERE user_id = $1")
+            sqlx::query_as("SELECT * FROM cdn_objects WHERE user_id = $1 ORDER BY uploaded_at DESC LIMIT $2 OFFSET $3 ")
                 .bind(user_id)
+                .bind(limit)
+                .bind(skip)
                 .fetch_all(&self.inner)
                 .await?;
         Ok(objects)

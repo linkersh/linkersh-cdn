@@ -287,11 +287,18 @@ pub async fn fetch_object(
     Ok(response)
 }
 
+#[derive(Deserialize)]
+pub struct ListObjectsQuery {
+    skip: i32,
+    limit: i32,
+}
+
 pub async fn list_objects(
     Extension(claims): Extension<TokenClaims>,
     State(state): State<Arc<ApiState>>,
+    Query(query): Query<ListObjectsQuery>,
 ) -> Result<Json<Vec<CdnObject>>, ApiError> {
-    let objects = state.pg.list_cdn_object(claims.sub).await?;
+    let objects = state.pg.list_cdn_object(claims.sub, query.limit, query.skip).await?;
     Ok(Json(objects))
 }
 
