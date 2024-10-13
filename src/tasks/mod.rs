@@ -25,7 +25,7 @@ async fn process_objects(objs: Vec<CdnObject>, state: Arc<ApiState>) -> anyhow::
                 Ok(v) => Ok(v),
                 Err(error) => {
                     tracing::error!(error = ?error, "failed to OCR an image");
-                    return Err(error);
+                    Err(error)
                 }
             }
         })
@@ -71,7 +71,7 @@ async fn run_tasks(state: &Arc<ApiState>) -> anyhow::Result<()> {
 
     for ch in chunks {
         let objects = ch.to_vec();
-        let state_clone = Arc::clone(&state);
+        let state_clone = Arc::clone(state);
 
         futures.push(async move {
             if let Err(error) = process_objects(objects, state_clone).await {

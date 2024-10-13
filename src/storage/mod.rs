@@ -85,7 +85,7 @@ impl StorageClient {
             .put_object_with_content_type(
                 format!("/vaults/{user_id}/thumbnails/{object_id}"),
                 &content,
-                &content_type,
+                content_type,
             )
             .await?;
 

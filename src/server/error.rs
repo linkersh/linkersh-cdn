@@ -26,7 +26,7 @@ impl IntoResponse for ApiError {
                 (StatusCode::METHOD_NOT_ALLOWED, "Method Not Allowed").into_response()
             }
         }
-    }
+    }   
 }
 
 impl<E> From<E> for ApiError

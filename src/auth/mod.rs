@@ -1,18 +1,24 @@
-use std::env;
+use std::{collections::HashMap, env};
 
 use anyhow::Ok;
 use reqwest::Client;
 use serde::Deserialize;
-use serde_json::json;
 
 pub mod user;
 
 #[derive(Deserialize, Debug)]
+pub struct DiscordToken {
+    pub access_token: String,
+    // pub token_type: String,
+    // pub expires_in: u64,
+    pub refresh_token: String,
+    // pub scope: String,
+}
+
+#[derive(Deserialize, Debug)]
 #[serde(untagged)]
-pub enum GithubTokenInfo {
-    Ok {
-        access_token: String,
-    },
+pub enum DiscordTokenInfo {
+    Ok(DiscordToken),
     Error {
         error: Option<String>,
         error_description: Option<String>,
@@ -20,42 +26,84 @@ pub enum GithubTokenInfo {
     },
 }
 
-pub async fn get_github_token(code: String) -> anyhow::Result<GithubTokenInfo> {
-    let github_client_id = env::var("GITHUB_CLIENT_ID")?;
-    let github_client_secret = env::var("GITHUB_CLIENT_SECRET")?;
-    let github_redirect_uri = env::var("GITHUB_REDIRECT_URI")?;
+pub async fn get_discord_token(code: String) -> anyhow::Result<DiscordTokenInfo> {
+    let discord_client_id = env::var("DISCORD_CLIENT_ID")?;
+    let discord_client_secret = env::var("DISCORD_CLIENT_SECRET")?;
+    let discord_redirect_uri = env::var("DISCORD_REDIRECT_URI")?;
 
     let client = Client::new();
-    let request = client
-        .post("https://github.com/login/oauth/access_token")
-        .json(&json!({
-            "client_id": github_client_id,
-            "client_secret": github_client_secret,
-            "code": code,
-            "redirect_uri": github_redirect_uri
-        }))
+    let mut data = HashMap::new();
+
+    data.insert("grant_type".to_owned(), "authorization_code".to_owned());
+    data.insert("code".to_owned(), code);
+    data.insert("redirect_uri".to_owned(), discord_redirect_uri);
+
+    let response = client
+        .post("https://discord.com/api/oauth2/token")
+        .basic_auth(discord_client_id, Some(discord_client_secret))
+        .form(&data)
         .send()
         .await?;
 
-    let resp = request.text().await?;
-    let token_info: GithubTokenInfo = serde_urlencoded::from_str(&resp)?;
-    Ok(token_info)
+    let resp: DiscordTokenInfo = response.json().await?;
+    Ok(resp)
 }
 
 #[derive(Deserialize, Debug)]
-pub struct GithubUser {
-    pub login: String,
-    pub id: i64,
+pub struct DiscordUserProfile {
+    pub username: String,
+    pub id: String,
 }
 
-pub async fn get_github_user_info(token: &str) -> anyhow::Result<GithubUser> {
+pub async fn get_user_profile(access: &str) -> anyhow::Result<DiscordUserProfile> {
     let client = Client::new();
+
     let request = client
-        .get("https://api.github.com/user")
-        .header("Authorization", format!("Bearer {token}"))
-        .header("User-Agent", "Linker.sh User Agent")
+        .get("https://discord.com/api/v10/users/@me")
+        .header("Authorization", format!("Bearer {access}"))
         .send()
         .await?;
-    let resp: GithubUser = request.json().await?;
+
+    let resp: DiscordUserProfile = request.json().await?;
     Ok(resp)
+}
+
+// #[derive(Deserialize)]
+// pub struct DiscordUserServer {
+//     pub id: String,
+//     pub name: String,
+// }
+
+// pub async fn get_user_servers(access: &str) -> anyhow::Result<Vec<DiscordUserServer>> {
+//     let client = Client::new();
+
+//     let request = client
+//         .get("https://discord.com/api/v10/users/@me/guilds")
+//         .header("Authorization", format!("Bearer {access}"))
+//         .send()
+//         .await?;
+
+//     let resp: Vec<DiscordUserServer> = request.json().await?;
+//     Ok(resp)
+// }
+
+pub async fn join_server(access: &str, guild_id: &str, user_id: &str) -> anyhow::Result<()> {
+    let discord_bot_token = env::var("DISCORD_TOKEN")?;
+
+    let client = Client::new();
+    let request = client
+        .put(format!(
+            "https://discord.com/api/v10/guilds/{guild_id}/members/{user_id}"
+        ))
+        .header("Authorization", format!("Bot {discord_bot_token}"))
+        .json(&serde_json::json!({ "access_token": access }))
+        .send()
+        .await?;
+
+    if !request.status().is_success() {
+        let resp = request.text().await?;
+        tracing::info!(error = ?resp, "failed to join {user_id} to guild {guild_id}");
+    }
+
+    Ok(())
 }

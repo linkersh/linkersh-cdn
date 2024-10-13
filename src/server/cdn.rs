@@ -99,7 +99,7 @@ pub async fn fetch_obj_by_slug(
         Ok(v) => v,
         Err(error) => {
             tracing::error!(error = ?error, "error when fetching a cdn object from postgres");
-            return Err(ApiError::CdnObjectNotFound.into());
+            return Err(ApiError::CdnObjectNotFound);
         }
     };
 
@@ -111,7 +111,7 @@ pub async fn fetch_obj_by_slug(
         Ok(v) => v,
         Err(error) => {
             tracing::error!(error = ?error, "error when fetching a cdn object from s3");
-            return Err(ApiError::CdnObjectNotFound.into());
+            return Err(ApiError::CdnObjectNotFound);
         }
     };
 
@@ -142,12 +142,12 @@ pub async fn publish_object(
         Ok(v) => v,
         Err(error) => {
             tracing::error!(error = ?error, "error when fetching a cdn object from postgres");
-            return Err(ApiError::CdnObjectNotFound.into());
+            return Err(ApiError::CdnObjectNotFound);
         }
     };
 
     if object.is_public || object.slug.is_some() {
-        return Err(ApiError::ObjectIsAlreadyPublic.into());
+        return Err(ApiError::ObjectIsAlreadyPublic);
     }
 
     let slug = state.pg.create_slug_and_publish(object.id).await?;
@@ -168,12 +168,12 @@ pub async fn fetch_object_thumb(
         Ok(v) => v,
         Err(error) => {
             tracing::error!(error = ?error, "error when fetching a cdn object from postgres");
-            return Err(ApiError::CdnObjectNotFound.into());
+            return Err(ApiError::CdnObjectNotFound);
         }
     };
 
     if !obj_pg.content_type.starts_with("image/") {
-        return Err(ApiError::ObjectHasNoThumbnail.into());
+        return Err(ApiError::ObjectHasNoThumbnail);
     }
 
     if let Ok(object) = state.storage.get_object_thumb(claims.sub, id).await {
@@ -194,7 +194,7 @@ pub async fn fetch_object_thumb(
         Ok(v) => v,
         Err(error) => {
             tracing::error!(error = ?error, "error when fetching a cdn object from s3");
-            return Err(ApiError::CdnObjectNotFound.into());
+            return Err(ApiError::CdnObjectNotFound);
         }
     };
 
@@ -262,7 +262,7 @@ pub async fn fetch_object(
         Ok(v) => v,
         Err(error) => {
             tracing::error!(error = ?error, "error when fetching a cdn object from postgres");
-            return Err(ApiError::CdnObjectNotFound.into());
+            return Err(ApiError::CdnObjectNotFound);
         }
     };
 
@@ -270,7 +270,7 @@ pub async fn fetch_object(
         Ok(v) => v,
         Err(error) => {
             tracing::error!(error = ?error, "error when fetching a cdn object from s3");
-            return Err(ApiError::CdnObjectNotFound.into());
+            return Err(ApiError::CdnObjectNotFound);
         }
     };
 
@@ -454,7 +454,7 @@ pub async fn upload(
 
         let mut flags = 0;
         if SUPPORTED_TYPES.iter().any(|x| x == &o.content_type) {
-            flags = flags | COF_SEARCHABLE;
+            flags |= COF_SEARCHABLE;
 
             tracing::debug!("object {} is searchable", o.id);
         }
