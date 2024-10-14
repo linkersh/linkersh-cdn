@@ -31,7 +31,6 @@ async fn auth_middleware(
         return next.run(request).await;
     }
 
-    dbg!(request.headers());
     let jar = CookieJar::from_headers(request.headers());
     let token = jar.get("token");
 

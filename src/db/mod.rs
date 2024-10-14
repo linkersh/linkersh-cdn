@@ -74,12 +74,13 @@ impl PgClient {
         user_id: Uuid,
         object_id: Uuid,
     ) -> anyhow::Result<CdnObject> {
-        let object: CdnObject =
-            sqlx::query_as("SELECT * FROM cdn_objects WHERE user_id = $1 AND id = $2")
-                .bind(user_id)
-                .bind(object_id)
-                .fetch_one(&self.inner)
-                .await?;
+        let object: CdnObject = sqlx::query_as(
+            "SELECT * FROM cdn_objects WHERE user_id = $1 AND id = $2",
+        )
+        .bind(user_id)
+        .bind(object_id)
+        .fetch_one(&self.inner)
+        .await?;
         Ok(object)
     }
 

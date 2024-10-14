@@ -10,7 +10,7 @@ use fast_image_resize::{images::Image, IntoImageView, ResizeOptions, Resizer};
 use futures::{stream::FuturesUnordered, StreamExt};
 use image::{codecs::webp::WebPEncoder, ImageEncoder};
 use scopeguard::guard_on_success;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
     io::{BufReader, BufWriter, Read},
@@ -43,7 +43,29 @@ pub fn router() -> Router<Arc<ApiState>> {
         .route("/objects/delete", post(delete_objects))
         .route("/objects/publish", post(publish_object))
         .route("/objects/search", get(search_objects))
+        .route("/objects/count", get(list_pages))
         .route("/*slug", get(fetch_obj_by_slug))
+}
+
+#[derive(Serialize)]
+pub struct ObjectCountResp {
+    object_count: i64,
+}
+
+pub async fn list_pages(
+    State(state): State<Arc<ApiState>>,
+    Extension(claims): Extension<TokenClaims>,
+) -> Result<Json<ObjectCountResp>, ApiError> {
+    let rec = sqlx::query!(
+        "SELECT COUNT(1) AS \"count!: i64\" FROM cdn_objects WHERE user_id = $1",
+        claims.sub
+    )
+    .fetch_one(&state.pg.inner)
+    .await?;
+
+    Ok(Json(ObjectCountResp {
+        object_count: rec.count,
+    }))
 }
 
 #[derive(Deserialize, Debug)]
@@ -298,7 +320,10 @@ pub async fn list_objects(
     State(state): State<Arc<ApiState>>,
     Query(query): Query<ListObjectsQuery>,
 ) -> Result<Json<Vec<CdnObject>>, ApiError> {
-    let objects = state.pg.list_cdn_object(claims.sub, query.limit, query.skip).await?;
+    let objects = state
+        .pg
+        .list_cdn_object(claims.sub, query.limit, query.skip)
+        .await?;
     Ok(Json(objects))
 }
 
