@@ -71,15 +71,28 @@ pub async fn list_pages(
 #[derive(Deserialize, Debug)]
 pub struct SearchObjectsQuery {
     q: String,
+    offset: usize,
+}
+
+#[derive(Serialize, Debug)]
+pub struct SearchObjectsResp {
+    objects: Vec<CdnObject>,
+    page: usize,
+    total_pages: usize,
+    total_hits: usize,
 }
 
 pub async fn search_objects(
     State(state): State<Arc<ApiState>>,
     Extension(claims): Extension<TokenClaims>,
     Query(query): Query<SearchObjectsQuery>,
-) -> Result<Json<Vec<CdnObject>>, ApiError> {
-    let objects_found = state.meili.search_objects(claims.sub, &query.q).await?;
+) -> Result<Json<SearchObjectsResp>, ApiError> {
+    let objects_found = state
+        .meili
+        .search_objects(claims.sub, &query.q, query.offset)
+        .await?;
     let object_ids = objects_found
+        .hits
         .iter()
         .map(|x| x.result.id)
         .collect::<Vec<_>>();
@@ -93,10 +106,12 @@ pub async fn search_objects(
 
     objects.sort_by(|a, b| {
         let pos_a = objects_found
+            .hits
             .iter()
             .position(|x| x.result.id == a.id)
             .unwrap();
         let pos_b = objects_found
+            .hits
             .iter()
             .position(|x| x.result.id == b.id)
             .unwrap();
@@ -110,7 +125,12 @@ pub async fn search_objects(
         }
     });
 
-    Ok(Json(objects))
+    Ok(Json(SearchObjectsResp {
+        objects,
+        page: objects_found.page.unwrap_or(1),
+        total_pages: objects_found.total_pages.unwrap_or(1),
+        total_hits: objects_found.total_hits.unwrap_or(1),
+    }))
 }
 
 pub async fn fetch_obj_by_slug(
