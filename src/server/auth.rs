@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use axum::{extract::State, response::Redirect, routing::post, Json, Router};
+use axum::{extract::State, routing::post, Json, Router};
 use axum_extra::extract::{
     cookie::{Cookie, SameSite},
     CookieJar,
