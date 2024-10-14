@@ -31,11 +31,11 @@ async fn auth_middleware(
         return next.run(request).await;
     }
 
-    if request.uri().path().starts_with("/api/cdn") && !request.uri().path().starts_with("/api/cdn/objects") {
+    if request.uri().path().starts_with("/api/cdn")
+        && !request.uri().path().starts_with("/api/cdn/objects")
+    {
         return next.run(request).await;
-    } 
-    println!("get token");
-
+    }
     let jar = CookieJar::from_headers(request.headers());
     let token = jar.get("token");
 
